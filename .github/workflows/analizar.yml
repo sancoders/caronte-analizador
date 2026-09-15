@@ -11,11 +11,12 @@ on:
   schedule:
     - cron: "*/5 * * * *"
 
-# Que no se pisen dos tandas a la vez. Igual el worker reclama cada fila de forma
-# atomica, asi que aunque se pisen no se hace el mismo analisis dos veces.
-concurrency:
-  group: analizar
-  cancel-in-progress: false
+# A proposito SIN candado de concurrencia: queremos que corran en paralelo. Si tres
+# personas piden un analisis al mismo tiempo, se levantan tres maquinas y cada una agarra
+# una fila distinta. Es seguro porque el worker reclama cada fila de forma atomica
+# (update ... where estado = 'en_cola'): el que llega segundo no matchea y sigue de largo,
+# asi que el mismo analisis nunca se hace ni se paga dos veces.
+# GitHub deja hasta 20 jobs a la vez en repos publicos, de sobra.
 
 jobs:
   vaciar-la-cola:
