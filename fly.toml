@@ -1,0 +1,15 @@
+# Para Fly.io. Railway y Render no necesitan este archivo: les alcanza con el Dockerfile.
+app = "caronte-analizador"
+primary_region = "eze"          # Buenos Aires
+
+[build]
+  dockerfile = "Dockerfile"
+
+# No es un servidor web: no escucha en ningun puerto, mira la cola y trabaja.
+# Por eso no lleva [[services]] ni health checks de HTTP.
+[processes]
+  app = "python worker.py"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"                # Chromium con menos que esto se muere

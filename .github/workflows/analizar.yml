@@ -1,0 +1,41 @@
+name: Analizar
+
+# Esto es lo que hace que Caronte funcione para cualquiera y no solo para el que tiene
+# la terminal abierta. GitHub levanta una maquina, vacia la cola de analisis y se apaga.
+#
+# Dos formas de arrancar:
+#  - la web lo dispara apenas alguien pide un analisis (instantaneo, necesita el token)
+#  - y por las dudas, cada 5 minutos, para que nada quede esperando para siempre
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+# Que no se pisen dos tandas a la vez. Igual el worker reclama cada fila de forma
+# atomica, asi que aunque se pisen no se hace el mismo analisis dos veces.
+concurrency:
+  group: analizar
+  cancel-in-progress: false
+
+jobs:
+  vaciar-la-cola:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # La imagen oficial de Playwright ya trae Chromium y todas las librerias del sistema.
+    # Sin esto habria que instalarlas en cada corrida y son mas de dos minutos.
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.62.0-noble
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar lo que falta
+        run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Vaciar la cola
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python worker.py --vaciar --minutos 25
