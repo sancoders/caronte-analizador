@@ -17,6 +17,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 import caronte
 from plan import armar_plan
@@ -43,6 +45,16 @@ ANON = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
 REST = f"{URL}/rest/v1/runs"
 CAB  = {"apikey": ANON, "Authorization": f"Bearer {ANON}", "Content-Type": "application/json"}
 
+# Una sesion con reintentos. Internet se corta: un "connection reset" nos mato un analisis
+# entero que ya habia costado plata, solo porque escribir el resultado fallo una vez.
+# Reintentar es seguro: todas nuestras escrituras ponen valores fijos, no incrementan nada.
+SESION = requests.Session()
+SESION.mount("https://", HTTPAdapter(max_retries=Retry(
+    total=4, backoff_factor=0.7,
+    status_forcelist=(408, 429, 500, 502, 503, 504),
+    allowed_methods=frozenset(["GET", "POST", "PATCH", "DELETE"]),
+)))
+
 # Todos los topes de tiempo en un solo lugar. Sin esto, cualquier cosa que se cuelgue
 # deja el analisis dando vueltas para siempre y la persona mirando una rueda.
 TOPE_CLONAR    = 120    # bajar el repo
@@ -64,7 +76,7 @@ class SeColgo(Exception):
     """Nos pasamos del tope de tiempo. Se corta y se avisa, no se deja colgado."""
 
 def proximo():
-    r = requests.get(REST, headers=CAB, timeout=20, params={
+    r = SESION.get(REST, headers=CAB, timeout=20, params={
         "estado": "eq.en_cola", "order": "creado.asc", "limit": "1", "select": "*"})
     r.raise_for_status()
     filas = r.json()
@@ -75,8 +87,8 @@ def reclamar(run_id):
     en cola: si otro worker la agarro primero, no matchea nada y devolvemos False.
     Sin esto, dos workers corriendo a la vez hacen el mismo analisis dos veces y se
     paga el modelo dos veces."""
-    r = requests.patch(REST, headers={**CAB, "Prefer": "return=representation"},
-                       params={"id": f"eq.{run_id}", "estado": "eq.en_cola", "select": "id"},
+    r = SESION.patch(REST, headers={**CAB, "Prefer": "return=representation"},
+                     params={"id": f"eq.{run_id}", "estado": "eq.en_cola", "select": "id"},
                        json={"estado": "bajando", "paso": "Empezando"}, timeout=20)
     r.raise_for_status()
     return bool(r.json())
@@ -86,8 +98,8 @@ def escribir(run_id, **campos):
     ninguna fila (por ejemplo si una politica lo bloquea), asi que pedirle que devuelva
     el id es la unica forma de saber que paso algo de verdad. Este proyecto no puede
     tener fallas silenciosas: son las que le marcamos a los demas."""
-    r = requests.patch(REST, headers={**CAB, "Prefer": "return=representation"},
-                       params={"id": f"eq.{run_id}", "select": "id"},
+    r = SESION.patch(REST, headers={**CAB, "Prefer": "return=representation"},
+                     params={"id": f"eq.{run_id}", "select": "id"},
                        json=campos, timeout=20)
     r.raise_for_status()
     filas = r.json()
@@ -214,7 +226,7 @@ def subir_capturas(run_id, capturas):
         destino = f"{run_id}/{os.path.basename(local)}"
         try:
             with open(local, "rb") as f:
-                r = requests.post(
+                r = SESION.post(
                     f"{URL}/storage/v1/object/capturas/{destino}",
                     headers={"apikey": ANON, "Authorization": f"Bearer {ANON}",
                              "Content-Type": "image/png", "x-upsert": "true"},
@@ -286,7 +298,7 @@ def barrer_colgados():
     # se toca, por mas que lleve media hora.
     limite = datetime.now(timezone.utc) - timedelta(seconds=SILENCIO_MUERTO)
     try:
-        r = requests.get(REST, headers=CAB, timeout=20, params={
+        r = SESION.get(REST, headers=CAB, timeout=20, params={
             "estado": f"in.({','.join(TRABAJANDO)})",
             "actualizado": f"lt.{limite.isoformat()}",
             "select": "id,estado,actualizado"})
