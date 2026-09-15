@@ -2,7 +2,7 @@
 Cuanto salio cada llamada. Precios de la API de Anthropic, en dolares por millon de tokens.
 Si cambian los precios, se cambian aca y en ningun otro lado.
 """
-import json, os, time
+import json, os, sys, time
 from pathlib import Path
 
 PRECIOS = {                     # (entrada, salida) por millon de tokens
@@ -12,6 +12,14 @@ PRECIOS = {                     # (entrada, salida) por millon de tokens
 }
 
 LIBRO = Path(__file__).resolve().parent.parent / "datos" / "gasto.json"
+
+# Lo gastado por este proceso, en memoria. El archivo sirve cuando corremos en una
+# maquina nuestra, pero en GitHub Actions el disco se borra al terminar: por eso el
+# costo de cada analisis se guarda tambien adentro del resultado, que si queda.
+_EN_MEMORIA = [0.0]
+
+def gastado():
+    return round(_EN_MEMORIA[0], 6)
 
 def calcular(modelo, uso):
     """uso es el objeto usage que devuelve la API."""
@@ -30,6 +38,7 @@ def anotar(para_que, modelo, uso):
     """Guarda la llamada en datos/gasto.json y devuelve el detalle. Asi el gasto queda
     contado de verdad y no estimado."""
     d = calcular(modelo, uso)
+    _EN_MEMORIA[0] += d["usd"]
     d["para_que"] = para_que
     d["cuando"] = time.strftime("%Y-%m-%d %H:%M:%S")
     libro = {"llamadas": [], "total_usd": 0.0}
@@ -40,8 +49,13 @@ def anotar(para_que, modelo, uso):
             pass
     libro["llamadas"].append(d)
     libro["total_usd"] = round(sum(x["usd"] for x in libro["llamadas"]), 6)
-    LIBRO.parent.mkdir(parents=True, exist_ok=True)
-    LIBRO.write_text(json.dumps(libro, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        LIBRO.parent.mkdir(parents=True, exist_ok=True)
+        LIBRO.write_text(json.dumps(libro, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        # En un servidor puede no haber donde escribir. No es motivo para cortar nada,
+        # pero que se vea: el numero que vale es el que va adentro del resultado.
+        print(f"    (no pude anotar el gasto en disco: {e})", file=sys.stderr)
     return d, libro["total_usd"]
 
 def resumen():

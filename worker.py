@@ -116,6 +116,8 @@ def correr(run):
     print(f"\n  [{run_id[:8]}] {repo}")
 
     arranco = time.monotonic()
+    import costo as libro_costos
+    gasto_antes = libro_costos.gastado()
 
     def queda():
         """Cuantos segundos nos quedan antes del tope total."""
@@ -196,6 +198,8 @@ def correr(run):
         if resumen:
             resultado["resumen"] = resumen
 
+        # Lo que costo ESTE analisis, guardado donde no se borra.
+        resultado["costo_usd"] = round(libro_costos.gastado() - gasto_antes, 6)
         escribir(run_id, estado="listo", paso=None,
                  score_total=resultado["score"]["total"], resultado=resultado)
         print(f"  [{run_id[:8]}] listo en {time.monotonic() - arranco:.0f}s: "
